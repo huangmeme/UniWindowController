@@ -65,6 +65,18 @@ namespace Kirurobo
             Raycast = 2,
         }
 
+        public enum MonitorAreaType : int
+        {
+            Monitor = 0,
+            WorkArea = 1,
+        }
+
+        public enum FitToMonitorMode : int
+        {
+            LegacyMaximize = 0,
+            DirectBounds = 1,
+        }
+
         /// <summary>
         /// Identifies the type of <see cref="OnStateChanged">OnStateChanged</see> event when it occurs
         /// </summary>
@@ -186,18 +198,18 @@ namespace Kirurobo
         private bool _isZoomed = false;
 
         /// <summary>
-        /// This window will fit to the monitor or not
+        /// This window will fit to monitor or not
         /// </summary>
         public bool shouldFitMonitor
         {
             get { return _shouldFitMonitor; }
             set { FitToMonitor(value, _monitorToFit); }
         }
-        [SerializeField, EditableProperty, Tooltip("Check to fit the window to the monitor")]
+        [SerializeField, EditableProperty, Tooltip("Check to fit window to monitor")]
         private bool _shouldFitMonitor = false;
 
         /// <summary>
-        /// Target monitor index to fit the window (0, 1, ...)
+        /// Target monitor index to fit window (0, 1, ...)
         /// </summary>
         public int monitorToFit
         {
@@ -205,6 +217,39 @@ namespace Kirurobo
             set { FitToMonitor(_shouldFitMonitor, value); }
         }
         private int _monitorToFit = 0;
+
+        /// <summary>
+        /// Fit to monitor mode
+        /// </summary>
+        public FitToMonitorMode fitToMonitorMode
+        {
+            get { return _fitToMonitorMode; }
+            set { _fitToMonitorMode = value; }
+        }
+        [SerializeField, EditableProperty, Tooltip("Fit to monitor mode: LegacyMaximize uses maximize, DirectBounds sets position/size directly")]
+        private FitToMonitorMode _fitToMonitorMode = FitToMonitorMode.LegacyMaximize;
+
+        /// <summary>
+        /// Monitor area to use when fitting
+        /// </summary>
+        public MonitorAreaType monitorAreaType
+        {
+            get { return _monitorAreaType; }
+            set { _monitorAreaType = value; }
+        }
+        [SerializeField, EditableProperty, Tooltip("Monitor area: Monitor uses full bounds, WorkArea excludes taskbar")]
+        private MonitorAreaType _monitorAreaType = MonitorAreaType.Monitor;
+
+        /// <summary>
+        /// Respect auto-hide taskbar when topmost
+        /// </summary>
+        public bool respectAutoHideTaskbarWhenTopmost
+        {
+            get { return _respectAutoHideTaskbarWhenTopmost; }
+            set { SetRespectAutoHideTaskbar(value); }
+        }
+        [SerializeField, EditableProperty, Tooltip("If enabled, temporarily drop from topmost when cursor is on auto-hide taskbar edge")]
+        private bool _respectAutoHideTaskbarWhenTopmost = false;
 
         /// <summary>
         /// Enable / disable accepting file drop
@@ -458,7 +503,7 @@ namespace Kirurobo
 
             if (targetMonitorIndex >= 0)
             {
-                _uniWinCore.FitToMonitor(targetMonitorIndex);
+                _uniWinCore.FitToMonitor(targetMonitorIndex, (UniWinCore.FitToMonitorMode)_fitToMonitorMode, (UniWinCore.MonitorAreaType)_monitorAreaType);
             }
         }
 
@@ -882,6 +927,7 @@ namespace Kirurobo
                     SetClickThrough(_isClickThrough);
                     SetAllowDrop(_allowDropFiles);
                     SetFreePositioning(_isFreePositioningEnabled);
+                    SetRespectAutoHideTaskbar(_respectAutoHideTaskbarWhenTopmost);
 
                     // ウィンドウ取得時にはモニタ変更と同等の処理を行う
                     OnMonitorChanged?.Invoke();
@@ -1007,12 +1053,23 @@ namespace Kirurobo
         /// <param name="topmost"></param>
         private void SetTopmost(bool topmost)
         {
-            //if (_isTopmost == topmost) return;
             if (_uniWinCore == null) return;
+            if (_isTopmost == topmost && _uniWinCore.IsTopmost == topmost) return;
 
             _uniWinCore.EnableTopmost(topmost);
             _isTopmost = _uniWinCore.IsTopmost;
             _isBottommost = _uniWinCore.IsBottommost;
+        }
+
+        /// <summary>
+        /// Set respect auto-hide taskbar mode
+        /// </summary>
+        /// <param name="enabled"></param>
+        private void SetRespectAutoHideTaskbar(bool enabled)
+        {
+            _respectAutoHideTaskbarWhenTopmost = enabled;
+            if (_uniWinCore == null) return;
+            _uniWinCore.SetRespectAutoHideTaskbar(enabled);
         }
 
         /// <summary>

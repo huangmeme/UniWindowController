@@ -31,6 +31,18 @@ namespace Kirurobo
             ColorKey = 2,
         }
 
+        public enum MonitorAreaType : int
+        {
+            Monitor = 0,
+            WorkArea = 1,
+        }
+
+        public enum FitToMonitorMode : int
+        {
+            LegacyMaximize = 0,
+            DirectBounds = 1,
+        }
+
 
         /// <summary>
         /// State changed event type (Experimental)
@@ -128,9 +140,12 @@ namespace Kirurobo
 
             [DllImport("LibUniWinC", CallingConvention = CallingConvention.Winapi)]
             public static extern void SetMaximized([MarshalAs(UnmanagedType.U1)] bool bZoomed);
-            
+
             [DllImport("LibUniWinC", CallingConvention = CallingConvention.Winapi)]
             public static extern void EnableFreePositioning([MarshalAs(UnmanagedType.U1)] bool bEnabled);
+
+            [DllImport("LibUniWinC", CallingConvention = CallingConvention.Winapi)]
+            public static extern void SetRespectAutoHideTaskbar([MarshalAs(UnmanagedType.U1)] bool enabled);
 
             [DllImport("LibUniWinC",CallingConvention=CallingConvention.Winapi)]
             public static extern void SetPosition(float x, float y);
@@ -191,6 +206,10 @@ namespace Kirurobo
             [DllImport("LibUniWinC",CallingConvention=CallingConvention.Winapi)]
             [return: MarshalAs(UnmanagedType.Bool)]
             public static extern bool GetMonitorRectangle(int index, out float x, out float y, out float width, out float height);
+
+            [DllImport("LibUniWinC",CallingConvention=CallingConvention.Winapi)]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public static extern bool GetMonitorRectangleArea(int index, MonitorAreaType areaType, out float x, out float y, out float width, out float height);
 
             [DllImport("LibUniWinC",CallingConvention=CallingConvention.Winapi)]
             public static extern void SetCursorPosition(float x, float y);
@@ -607,6 +626,26 @@ namespace Kirurobo
             return LibUniWinC.IsMaximized();
         }
 
+        // The new native APIs only exist on the Windows plugin for now.
+        private static bool UseExtendedWindowsApis()
+        {
+#if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
+            return true;
+#else
+            return false;
+#endif
+        }
+
+        /// <summary>
+        /// Set whether to respect auto-hide taskbar when topmost
+        /// </summary>
+        /// <param name="enabled">If enabled, temporarily drop from topmost when cursor is on auto-hide taskbar edge</param>
+        public void SetRespectAutoHideTaskbar(bool enabled)
+        {
+            if (!UseExtendedWindowsApis()) return;
+            LibUniWinC.SetRespectAutoHideTaskbar(enabled);
+        }
+
         /// <summary>
         /// Set the window position.
         /// </summary>
@@ -860,27 +899,67 @@ namespace Kirurobo
         /// <returns></returns>
         public bool FitToMonitor(int monitorIndex)
         {
+            return FitToMonitor(monitorIndex, FitToMonitorMode.LegacyMaximize, MonitorAreaType.Monitor);
+        }
+
+        /// <summary>
+        /// Fit the window to specified monitor with mode and area type
+        /// </summary>
+        /// <param name="monitorIndex"></param>
+        /// <param name="mode"></param>
+        /// <param name="areaType"></param>
+        /// <returns></returns>
+        public bool FitToMonitor(int monitorIndex, FitToMonitorMode mode, MonitorAreaType areaType)
+        {
             float dx, dy, dw, dh;
-            if (LibUniWinC.GetMonitorRectangle(monitorIndex, out dx, out dy, out dw, out dh))
+            bool useExtendedWindowsApis = UseExtendedWindowsApis();
+            bool gotMonitorRect;
+            if (useExtendedWindowsApis)
             {
-                // 最大化状態なら一度戻す
-                if (LibUniWinC.IsMaximized()) LibUniWinC.SetMaximized(false);
+                gotMonitorRect = LibUniWinC.GetMonitorRectangleArea(monitorIndex, areaType, out dx, out dy, out dw, out dh);
+            }
+            else
+            {
+                gotMonitorRect = LibUniWinC.GetMonitorRectangle(monitorIndex, out dx, out dy, out dw, out dh);
+            }
 
-                // 指定モニタ中央座標
-                float cx = dx + (dw / 2);
-                float cy = dy + (dh / 2);
+            if (gotMonitorRect)
+            {
+                if (!useExtendedWindowsApis)
+                {
+                    mode = FitToMonitorMode.LegacyMaximize;
+                }
 
-                // ウィンドウ中央を指定モニタ中央に移動
-                float ww, wh;
-                LibUniWinC.GetSize(out ww, out wh);
-                float wx = cx - (ww / 2);
-                float wy = cy - (wh / 2);
-                LibUniWinC.SetPosition(wx, wy);
+                if (mode == FitToMonitorMode.LegacyMaximize)
+                {
+                    // LegacyMaximize path: use maximize
+                    // 最大化状態なら一度戻す
+                    if (LibUniWinC.IsMaximized()) LibUniWinC.SetMaximized(false);
 
-                // 最大化
-                LibUniWinC.SetMaximized(true);
+                    // 指定モニタ中央座標
+                    float cx = dx + (dw / 2);
+                    float cy = dy + (dh / 2);
 
-                //Debug.Log(String.Format("Monitor {4} : {0},{1} - {2},{3}", dx, dy, dw, dh, monitorIndex));
+                    // ウィンドウ中央を指定モニタ中央に移動
+                    float ww, wh;
+                    LibUniWinC.GetSize(out ww, out wh);
+                    float wx = cx - (ww / 2);
+                    float wy = cy - (wh / 2);
+                    LibUniWinC.SetPosition(wx, wy);
+
+                    // 最大化
+                    LibUniWinC.SetMaximized(true);
+                }
+                else
+                {
+                    // DirectBounds path: do NOT call maximize
+                    // Clear maximized state first if needed
+                    if (LibUniWinC.IsMaximized()) LibUniWinC.SetMaximized(false);
+
+                    // Directly set position and size
+                    LibUniWinC.SetPosition(dx, dy);
+                    LibUniWinC.SetSize(dw, dh);
+                }
                 return true;
             }
             return false;

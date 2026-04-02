@@ -32,6 +32,18 @@ namespace Kirurobo
             ColorKey = 2,
         }
 
+        public enum MonitorAreaType : int
+        {
+            Monitor = 0,
+            WorkArea = 1,
+        }
+
+        public enum FitToMonitorMode : int
+        {
+            LegacyMaximize = 0,
+            DirectBounds = 1,
+        }
+
 
         /// <summary>
         /// State changed event type (Experimental)
@@ -124,7 +136,10 @@ namespace Kirurobo
             public static extern void SetBottommost([MarshalAs(UnmanagedType.U1)] bool bEnabled);
 
             [DllImport("LibUniWinC")]
-            public static extern void SetMaximized([MarshalAs(UnmanagedType.U1)] bool bZoomed);
+            public static extern void SetMaximized([MarshalAs(UnmanagedType.U1)] bool isZoomed);
+
+            [DllImport("LibUniWinC")]
+            public static extern void SetRespectAutoHideTaskbar([MarshalAs(UnmanagedType.U1)] bool enabled);
 
             [DllImport("LibUniWinC")]
             public static extern void SetPosition(float x, float y);
@@ -185,6 +200,10 @@ namespace Kirurobo
             [DllImport("LibUniWinC")]
             [return: MarshalAs(UnmanagedType.Bool)]
             public static extern bool GetMonitorRectangle(int index, out float x, out float y, out float width, out float height);
+
+            [DllImport("LibUniWinC")]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public static extern bool GetMonitorRectangleArea(int index, MonitorAreaType areaType, out float x, out float y, out float width, out float height);
 
             [DllImport("LibUniWinC")]
             public static extern void SetCursorPosition(float x, float y);
@@ -581,6 +600,15 @@ namespace Kirurobo
         public bool GetZoomed()
         {
             return LibUniWinC.IsMaximized();
+        }
+
+        /// <summary>
+        /// Set whether to respect auto-hide taskbar when topmost
+        /// </summary>
+        /// <param name="enabled">If enabled, temporarily drop from topmost when cursor is on auto-hide taskbar edge</param>
+        public void SetRespectAutoHideTaskbar(bool enabled)
+        {
+            LibUniWinC.SetRespectAutoHideTaskbar(enabled);
         }
 
         /// <summary>

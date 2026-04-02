@@ -50,6 +50,16 @@ enum class PanelFlag : int {
 	ReferLink = 8192,
 };
 
+enum class MonitorAreaType : int {
+	Monitor = 0,
+	WorkArea = 1,
+};
+
+enum class FitToMonitorMode : int {
+	LegacyMaximize = 0,
+	DirectBounds = 1,
+};
+
 // Struct to transmit file panel settings
 #pragma pack(push, 1)
 typedef struct tagPANELSETTINGS {
@@ -103,6 +113,7 @@ UNIWINC_EXPORT void UNIWINC_API SetBackground(const BOOL isBackground);
 UNIWINC_EXPORT void UNIWINC_API SetClickThrough(const BOOL isTransparent);
 UNIWINC_EXPORT void UNIWINC_API SetMaximized(const BOOL isZoomed);
 UNIWINC_EXPORT void UNIWINC_API EnableFreePositioning(const BOOL isFree);
+UNIWINC_EXPORT void UNIWINC_API SetRespectAutoHideTaskbar(const BOOL enabled);
 UNIWINC_EXPORT BOOL UNIWINC_API SetPosition(const float x, const float y);
 UNIWINC_EXPORT BOOL UNIWINC_API GetPosition(float* x, float* y);
 UNIWINC_EXPORT BOOL UNIWINC_API SetSize(const float width, const float height);
@@ -123,6 +134,7 @@ UNIWINC_EXPORT BOOL UNIWINC_API UnregisterDropFilesCallback();
 // Monitor Info.
 UNIWINC_EXPORT INT32 UNIWINC_API GetMonitorCount();
 UNIWINC_EXPORT BOOL UNIWINC_API GetMonitorRectangle(const INT32 monitorIndex, float* x, float* y, float* width, float* height);
+UNIWINC_EXPORT BOOL UNIWINC_API GetMonitorRectangleArea(const INT32 monitorIndex, const MonitorAreaType areaType, float* x, float* y, float* width, float* height);
 
 // Mouse pointer
 UNIWINC_EXPORT BOOL UNIWINC_API SetCursorPosition(const float x, const float y);
