@@ -17,19 +17,23 @@ static SIZE szVirtualScreen_;
 static INT nPrimaryMonitorHeight_;
 static BOOL bIsTransparent_ = FALSE;
 static BOOL bIsBorderless_ = FALSE;
-static BYTE byAlpha_ = 0xFF;						// ウィンドウ全体の透明度 0x00:透明 ～ 0xFF:不透明
+static BYTE byAlpha_ = 0xFF;							// ウィンドウ全体の透明度 0x00:透明 ～ 0xFF:不透明
 static BOOL bIsTopmost_ = FALSE;
 static BOOL bIsBottommost_ = FALSE;
 static BOOL bIsBackground_ = FALSE;
+static BOOL bIsFreePositioning_ = FALSE;				// macOSのみ有効。Windowsでは値の保持のみ
 static BOOL bIsClickThrough_ = FALSE;
 static BOOL bAllowDropFile_ = FALSE;
-static COLORREF dwKeyColor_ = 0x00000000;		// AABBGGRR
+static COLORREF dwKeyColor_ = 0x00000000;				// AABBGGRR
 static TransparentType nTransparentType_ = TransparentType::Alpha;
 static TransparentType nCurrentTransparentType_ = TransparentType::Alpha;
 static INT nMonitorCount_ = 0;							// モニタ数。モニタ解像度一覧取得時は一時的に0に戻る
 static RECT pMonitorRect_[UNIWINC_MAX_MONITORCOUNT];	// EnumDisplayMonitorsの順番で保持した、各画面のRECT
+static RECT pMonitorWorkRect_[UNIWINC_MAX_MONITORCOUNT];	// EnumDisplayMonitorsの順番で保持した、各画面のワークエリアRECT
 static INT pMonitorIndices_[UNIWINC_MAX_MONITORCOUNT];	// このライブラリ独自のモニタ番号をキーとした、EnumDisplayMonitorsでの順番
 static HMONITOR hMonitors_[UNIWINC_MAX_MONITORCOUNT];	// Monitor handles
+static BOOL bRespectAutoHideTaskbar_ = FALSE;			// 自動非表示タスクバーに配慮するモード
+static BOOL bActualTopmost_ = TRUE;					// 自動非表示モードでの実際の最前面状態（bIsTopmost_とは別管理）
 static WNDPROC lpMyWndProc_ = NULL;
 static WNDPROC lpOriginalWndProc_ = NULL;
 //static HHOOK hHook_ = NULL;
@@ -46,6 +50,10 @@ void detachWindow();
 void refreshWindowRect();
 void updateScreenSize();
 void applyWindowAlphaValue();
+BOOL isAutoHideTaskbarEnabled();
+BOOL isCursorOnTaskbarEdge();
+HWND findTaskbarWindow();
+void updateAutoHideTaskbarMode();
 //void beginHook();
 //void endHook();
 void createCustomWindowProcedure();
@@ -250,6 +258,12 @@ BOOL CALLBACK monitorEnumProc(HMONITOR hMon, HDC hDc, LPRECT lpRect, LPARAM lPar
 	// RECTを記憶
 	pMonitorRect_[nMonitorCount_] = *lpRect;
 
+	// ワークエリア（タスクバーを除いたエリア）も記憶
+	MONITORINFO mi;
+	mi.cbSize = sizeof(MONITORINFO);
+	GetMonitorInfo(hMon, &mi);
+	pMonitorWorkRect_[nMonitorCount_] = mi.rcWork;
+
 	// プライマリモニタの高さを記憶
 	if (lpRect->left == 0 && lpRect->top == 0) {
 		// 原点に位置するモニタがプライマリモニタだと判断
@@ -450,6 +464,109 @@ BOOL getTopMost() {
 	return (ex & WS_EX_TOPMOST) == WS_EX_TOPMOST;
 }
 
+/// <summary>
+/// 自動非表示タスクバーが有効かどうかを判定
+/// </summary>
+/// <returns></returns>
+BOOL isAutoHideTaskbarEnabled() {
+	APPBARDATA abd;
+	abd.cbSize = sizeof(APPBARDATA);
+	abd.hWnd = FindWindow(L"Shell_TrayWnd", NULL);
+	if (abd.hWnd == NULL) return FALSE;
+
+	if (SHAppBarMessage(ABM_GETSTATE, &abd)) {
+		return (abd.lParam & ABS_AUTOHIDE) != 0;
+	}
+	return FALSE;
+}
+
+/// <summary>
+/// タスクバーウィンドウを探す
+/// </summary>
+/// <returns></returns>
+HWND findTaskbarWindow() {
+	return FindWindow(L"Shell_TrayWnd", NULL);
+}
+
+/// <summary>
+/// カーソルがタスクバーの端にあるかを判定
+/// </summary>
+/// <returns></returns>
+BOOL isCursorOnTaskbarEdge() {
+	if (nMonitorCount_ <= 0) return FALSE;
+
+	POINT cursor;
+	if (!GetCursorPos(&cursor)) return FALSE;
+
+	APPBARDATA abd;
+	abd.cbSize = sizeof(APPBARDATA);
+	abd.hWnd = FindWindow(L"Shell_TrayWnd", NULL);
+	if (abd.hWnd == NULL) return FALSE;
+
+	if (!SHAppBarMessage(ABM_GETTASKBARPOS, &abd)) return FALSE;
+
+	const int edgeThreshold = 3;
+
+	BOOL onEdge = FALSE;
+
+	UINT uEdge = abd.uEdge;
+
+	switch (uEdge) {
+	case ABE_TOP:
+		if (cursor.y >= abd.rc.bottom - edgeThreshold && cursor.y <= abd.rc.bottom) {
+			onEdge = TRUE;
+		}
+		break;
+	case ABE_BOTTOM:
+		if (cursor.y <= abd.rc.top + edgeThreshold && cursor.y >= abd.rc.top) {
+			onEdge = TRUE;
+		}
+		break;
+	case ABE_LEFT:
+		if (cursor.x >= abd.rc.right - edgeThreshold && cursor.x <= abd.rc.right) {
+			onEdge = TRUE;
+		}
+		break;
+	case ABE_RIGHT:
+		if (cursor.x <= abd.rc.left + edgeThreshold && cursor.x >= abd.rc.left) {
+			onEdge = TRUE;
+		}
+		break;
+	}
+
+	return onEdge;
+}
+
+/// <summary>
+/// 自動非表示タスクバーモードでの最前面状態を更新
+/// </summary>
+void updateAutoHideTaskbarMode() {
+	if (!bRespectAutoHideTaskbar_ || !bIsTopmost_ || !hTargetWnd_) {
+		if (!bActualTopmost_ && bIsTopmost_ && hTargetWnd_) {
+			SetWindowPos(hTargetWnd_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
+			bActualTopmost_ = TRUE;
+		}
+		return;
+	}
+
+	BOOL autoHideEnabled = isAutoHideTaskbarEnabled();
+	BOOL cursorOnEdge = isCursorOnTaskbarEdge();
+
+	HWND hForeground = GetForegroundWindow();
+	HWND hTaskbar = findTaskbarWindow();
+	BOOL taskbarIsForeground = (hTaskbar != NULL && hForeground == hTaskbar);
+
+	BOOL shouldDrop = (autoHideEnabled && cursorOnEdge) || taskbarIsForeground;
+
+	if (shouldDrop && bActualTopmost_) {
+		SetWindowPos(hTargetWnd_, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
+		bActualTopmost_ = FALSE;
+	} else if (!shouldDrop && !bActualTopmost_) {
+		SetWindowPos(hTargetWnd_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
+		bActualTopmost_ = TRUE;
+	}
+}
+
 #pragma endregion Internal functions
 
 
@@ -461,8 +578,7 @@ BOOL getTopMost() {
 /// </summary>
 /// <returns></returns>
 void UNIWINC_API Update() {
-	// 今のところWindowsでは何もしない
-	return;
+	updateAutoHideTaskbarMode();
 }
 
 /// <summary>
@@ -533,6 +649,15 @@ BOOL UNIWINC_API IsMinimized() {
 }
 
 /// <summary>
+/// （macOSのみ有効）ウィンドウの自由配置機能が有効かどうかを返します
+/// </summary>
+/// <returns>Windowsでは特に制限なしのためTRUE</returns>
+BOOL UNIWINC_API IsFreePositioningEnabled()
+{
+	return bIsFreePositioning_;
+}
+
+/// <summary>
 /// Restore and release the target window
 /// </summary>
 /// <returns></returns>
@@ -575,6 +700,7 @@ HWND FindOwnerWindowHandle() {
 ///   (To attach the process with multiple windows)
 /// </summary>
 /// <returns></returns>
+
 BOOL UNIWINC_API AttachMyActiveWindow() {
 	DWORD currentPid = GetCurrentProcessId();
 	HWND hWnd = GetActiveWindow();
@@ -826,15 +952,17 @@ void UNIWINC_API SetTopmost(const BOOL bTopmost) {
 			SWP_NOSIZE | SWP_NOMOVE | SWP_NOOWNERZORDER | SWP_NOACTIVATE //| SWP_ASYNCWINDOWPOS // | SWP_FRAMECHANGED
 		);
 
-		// Run callback if the topmost state changed
+		// Run callback if topmost state changed
 		if (bIsTopmost_ != bTopmost) {
 			if (hWindowStyleChangedHandler_ != nullptr) {
 				hWindowStyleChangedHandler_((INT32)(bTopmost ? WindowStateEventType::TopMostEnabled : WindowStateEventType::TopMostDisabled));
 			}
 		}
 	}
-
+ 
 	bIsTopmost_ = bTopmost;
+
+	bActualTopmost_ = bTopmost;
 }
 
 /// <summary>
@@ -908,7 +1036,7 @@ void UNIWINC_API SetBackground(const BOOL bEnabled) {
 }
 
 /// <summary>
-/// Zoom the window or normalize
+/// Zoom window or normalize
 /// </summary>
 /// <param name="bZoomed"></param>
 /// <returns></returns>
@@ -922,6 +1050,26 @@ void UNIWINC_API SetMaximized(const BOOL bZoomed) {
 			ShowWindow(hTargetWnd_, SW_NORMAL);
 		}
 	}
+}
+
+/// <summary>
+/// Set whether to respect auto-hide taskbar when topmost
+/// </summary>
+/// <param name="enabled"></param>
+/// <returns></returns>
+void UNIWINC_API SetRespectAutoHideTaskbar(const BOOL enabled) {
+	bRespectAutoHideTaskbar_ = enabled;
+}
+
+/// <summary>
+/// （macOSのみ）ウィンドウ配置制限を解除・復帰します
+/// </summary>
+/// <param name="isFree">Windowsでは動作しません</param>
+/// <returns>なし</returns>
+void UNIWINC_API EnableFreePositioning(const BOOL isFree)
+{
+	bIsFreePositioning_ = isFree;
+	return;
 }
 
 /// <summary>
@@ -1206,6 +1354,35 @@ BOOL  UNIWINC_API GetMonitorRectangle(const INT32 monitorIndex, float* x, float*
 	}
 
 	RECT rect = pMonitorRect_[pMonitorIndices_[monitorIndex]];
+	*x = (float)(rect.left);
+	*y = (float)(nPrimaryMonitorHeight_ - rect.bottom);		// 左下基準とする
+	*width = (float)(rect.right - rect.left);
+	*height = (float)(rect.bottom - rect.top);
+	return TRUE;
+}
+
+/// <summary>
+/// モニタの位置、サイズを取得（エリア指定可）
+/// </summary>
+/// <param name="width">幅 [px]</param>
+/// <param name="height">高さ [px]</param>
+/// <returns>成功すれば true</returns>
+BOOL  UNIWINC_API GetMonitorRectangleArea(const INT32 monitorIndex, const MonitorAreaType areaType, float* x, float* y, float* width, float* height) {
+	*x = 0;
+	*y = 0;
+	*width = 0;
+	*height = 0;
+
+	if (monitorIndex < 0 || monitorIndex >= nMonitorCount_) {
+		return FALSE;
+	}
+
+	RECT rect;
+	if (areaType == MonitorAreaType::WorkArea) {
+		rect = pMonitorWorkRect_[pMonitorIndices_[monitorIndex]];
+	} else {
+		rect = pMonitorRect_[pMonitorIndices_[monitorIndex]];
+	}
 	*x = (float)(rect.left);
 	*y = (float)(nPrimaryMonitorHeight_ - rect.bottom);		// 左下基準とする
 	*width = (float)(rect.right - rect.left);
