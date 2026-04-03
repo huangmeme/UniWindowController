@@ -169,11 +169,22 @@ namespace Kirurobo
         /// </summary>
         public bool isTopmost
         {
-            get { return ((_uniWinCore == null) ? _isTopmost : _isTopmost = _uniWinCore.IsTopmost); }
+            get { return ((_uniWinCore == null) ? _isTopmost : _uniWinCore.IsTopmost); }
             set { SetTopmost(value); }
         }
         [SerializeField, EditableProperty, Tooltip("Check to set topmost on startup")]
         private bool _isTopmost = false;
+
+        /// <summary>
+        /// Keep restoring topmost while other windows change z-order (Windows only)
+        /// </summary>
+        public bool maintainTopmost
+        {
+            get { return _maintainTopmost; }
+            set { SetMaintainTopmost(value); }
+        }
+        [SerializeField, EditableProperty, Tooltip("Windows only: keep recovering topmost if other windows change z-order")]
+        private bool _maintainTopmost = false;
 
         /// <summary>
         /// Is this window bottommost
@@ -928,6 +939,7 @@ namespace Kirurobo
                     SetAllowDrop(_allowDropFiles);
                     SetFreePositioning(_isFreePositioningEnabled);
                     SetRespectAutoHideTaskbar(_respectAutoHideTaskbarWhenTopmost);
+                    SetMaintainTopmost(_maintainTopmost);
 
                     // ウィンドウ取得時にはモニタ変更と同等の処理を行う
                     OnMonitorChanged?.Invoke();
@@ -1053,11 +1065,12 @@ namespace Kirurobo
         /// <param name="topmost"></param>
         private void SetTopmost(bool topmost)
         {
+            bool requestedTopmost = _isTopmost;
+            _isTopmost = topmost;
             if (_uniWinCore == null) return;
-            if (_isTopmost == topmost && _uniWinCore.IsTopmost == topmost) return;
+            if (requestedTopmost == topmost && _uniWinCore.IsTopmost == topmost) return;
 
             _uniWinCore.EnableTopmost(topmost);
-            _isTopmost = _uniWinCore.IsTopmost;
             _isBottommost = _uniWinCore.IsBottommost;
         }
 
@@ -1073,6 +1086,17 @@ namespace Kirurobo
         }
 
         /// <summary>
+        /// Set whether to keep restoring topmost state on Windows.
+        /// </summary>
+        /// <param name="enabled"></param>
+        private void SetMaintainTopmost(bool enabled)
+        {
+            _maintainTopmost = enabled;
+            if (_uniWinCore == null) return;
+            _uniWinCore.SetMaintainTopmost(enabled);
+        }
+
+        /// <summary>
         /// 常に最背面を切替
         /// </summary>
         /// <param name="bottommost"></param>
@@ -1081,8 +1105,8 @@ namespace Kirurobo
             if (_uniWinCore == null) return;
 
             _uniWinCore.EnableBottommost(bottommost);
-            _isBottommost = _uniWinCore.IsBottommost;
-            _isTopmost = _uniWinCore.IsTopmost;
+            _isBottommost = bottommost;
+            _isTopmost = false;
         }
 
         /// <summary>

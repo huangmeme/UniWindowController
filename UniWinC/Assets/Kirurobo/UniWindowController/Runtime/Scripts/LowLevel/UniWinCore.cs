@@ -147,6 +147,9 @@ namespace Kirurobo
             [DllImport("LibUniWinC", CallingConvention = CallingConvention.Winapi)]
             public static extern void SetRespectAutoHideTaskbar([MarshalAs(UnmanagedType.U1)] bool enabled);
 
+            [DllImport("LibUniWinC", CallingConvention = CallingConvention.Winapi)]
+            public static extern void SetMaintainTopmost([MarshalAs(UnmanagedType.U1)] bool enabled);
+
             [DllImport("LibUniWinC",CallingConvention=CallingConvention.Winapi)]
             public static extern void SetPosition(float x, float y);
 
@@ -272,7 +275,15 @@ namespace Kirurobo
         /// <summary>
         /// Determines whether the attached window is always on the front
         /// </summary>
-        public bool IsTopmost { get { return (IsActive && _isTopmost); } }
+        public bool IsTopmost
+        {
+            get
+            {
+                if (!IsActive) return false;
+                if (UseExtendedWindowsApis()) return LibUniWinC.IsTopmost();
+                return _isTopmost;
+            }
+        }
         private bool _isTopmost = false;
 
         /// <summary>
@@ -644,6 +655,16 @@ namespace Kirurobo
         {
             if (!UseExtendedWindowsApis()) return;
             LibUniWinC.SetRespectAutoHideTaskbar(enabled);
+        }
+
+        /// <summary>
+        /// Set whether to keep recovering topmost while other windows change z-order
+        /// </summary>
+        /// <param name="enabled"></param>
+        public void SetMaintainTopmost(bool enabled)
+        {
+            if (!UseExtendedWindowsApis()) return;
+            LibUniWinC.SetMaintainTopmost(enabled);
         }
 
         /// <summary>
