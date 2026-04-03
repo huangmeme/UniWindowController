@@ -97,6 +97,10 @@ namespace Kirurobo
             [return: MarshalAs(UnmanagedType.Bool)]
             public static extern bool IsMaximized();
 
+            [DllImport("LibUniWinC", CallingConvention=CallingConvention.Winapi)]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            public static extern bool IsFreePositioningEnabled();
+
             [DllImport("LibUniWinC",CallingConvention=CallingConvention.Winapi)]
             [return: MarshalAs(UnmanagedType.Bool)]
             public static extern bool AttachMyWindow();
@@ -287,6 +291,12 @@ namespace Kirurobo
         /// </summary>
         public bool IsBottommost { get { return (IsActive && _isBottommost); } }
         private bool _isBottommost = false;
+
+        /// <summary>
+        /// Determines whether the attached window can be freely positioned (macOS only)
+        /// </summary>
+        public bool IsFreePositioningEnabled { get { return (IsActive && _isFreePositioningEnabled); } }
+        private bool _isFreePositioningEnabled = false;
 
         /// <summary>
         /// Determines whether the attached window is transparent
@@ -629,6 +639,16 @@ namespace Kirurobo
 #else
             return false;
 #endif
+        }
+
+        /// <summary>
+        /// Determines whether the attached window can be freely positioned (macOS only)
+        /// </summary>
+        /// <param name="enabled"></param>
+        public void EnableFreePositioning(bool enabled)
+        {
+            LibUniWinC.EnableFreePositioning(enabled);
+            _isFreePositioningEnabled = LibUniWinC.IsFreePositioningEnabled();
         }
 
         /// <summary>
