@@ -33,6 +33,7 @@ static RECT pMonitorWorkRect_[UNIWINC_MAX_MONITORCOUNT];	// EnumDisplayMonitors�
 static INT pMonitorIndices_[UNIWINC_MAX_MONITORCOUNT];	// このライブラリ独自のモニタ番号をキーとした、EnumDisplayMonitorsでの順番
 static HMONITOR hMonitors_[UNIWINC_MAX_MONITORCOUNT];	// Monitor handles
 static BOOL bRespectAutoHideTaskbar_ = FALSE;			// 自動非表示タスクバーに配慮するモード
+static BOOL bMaintainTopmost_ = FALSE;					// 実際の最前面状態を継続的に維持するモード
 static BOOL bActualTopmost_ = TRUE;					// 自動非表示モードでの実際の最前面状態（bIsTopmost_とは別管理）
 static WNDPROC lpMyWndProc_ = NULL;
 static WNDPROC lpOriginalWndProc_ = NULL;
@@ -53,7 +54,8 @@ void applyWindowAlphaValue();
 BOOL isAutoHideTaskbarEnabled();
 BOOL isCursorOnTaskbarEdge();
 HWND findTaskbarWindow();
-void updateAutoHideTaskbarMode();
+BOOL shouldDropTopmostForTaskbar();
+void updateMaintainedTopmost();
 //void beginHook();
 //void endHook();
 void createCustomWindowProcedure();
@@ -538,15 +540,12 @@ BOOL isCursorOnTaskbarEdge() {
 }
 
 /// <summary>
-/// 自動非表示タスクバーモードでの最前面状態を更新
+/// 自動非表示タスクバーのために一時的に最前面を解除すべきか
 /// </summary>
-void updateAutoHideTaskbarMode() {
-	if (!bRespectAutoHideTaskbar_ || !bIsTopmost_ || !hTargetWnd_) {
-		if (!bActualTopmost_ && bIsTopmost_ && hTargetWnd_) {
-			SetWindowPos(hTargetWnd_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
-			bActualTopmost_ = TRUE;
-		}
-		return;
+/// <returns></returns>
+BOOL shouldDropTopmostForTaskbar() {
+	if (!bRespectAutoHideTaskbar_) {
+		return FALSE;
 	}
 
 	BOOL autoHideEnabled = isAutoHideTaskbarEnabled();
@@ -556,15 +555,35 @@ void updateAutoHideTaskbarMode() {
 	HWND hTaskbar = findTaskbarWindow();
 	BOOL taskbarIsForeground = (hTaskbar != NULL && hForeground == hTaskbar);
 
-	BOOL shouldDrop = (autoHideEnabled && cursorOnEdge) || taskbarIsForeground;
+	return (autoHideEnabled && cursorOnEdge) || taskbarIsForeground;
+}
 
-	if (shouldDrop && bActualTopmost_) {
-		SetWindowPos(hTargetWnd_, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
-		bActualTopmost_ = FALSE;
-	} else if (!shouldDrop && !bActualTopmost_) {
-		SetWindowPos(hTargetWnd_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
-		bActualTopmost_ = TRUE;
+/// <summary>
+/// 実際の最前面状態を必要に応じて修正
+/// </summary>
+void updateMaintainedTopmost() {
+	if ((hTargetWnd_ == NULL) || !IsWindow(hTargetWnd_)) {
+		return;
 	}
+	if (!bIsTopmost_) {
+		bActualTopmost_ = FALSE;
+		return;
+	}
+	if (!bMaintainTopmost_ && !bRespectAutoHideTaskbar_ && bActualTopmost_) {
+		return;
+	}
+
+	BOOL desiredTopmost = shouldDropTopmostForTaskbar() ? FALSE : TRUE;
+	BOOL actualTopmost = getTopMost();
+	if (desiredTopmost != actualTopmost) {
+		SetWindowPos(
+			hTargetWnd_,
+			(desiredTopmost ? HWND_TOPMOST : HWND_NOTOPMOST),
+			0, 0, 0, 0,
+			SWP_NOSIZE | SWP_NOMOVE | SWP_NOOWNERZORDER | SWP_NOACTIVATE
+		);
+	}
+	bActualTopmost_ = desiredTopmost;
 }
 
 #pragma endregion Internal functions
@@ -578,7 +597,7 @@ void updateAutoHideTaskbarMode() {
 /// </summary>
 /// <returns></returns>
 void UNIWINC_API Update() {
-	updateAutoHideTaskbarMode();
+	updateMaintainedTopmost();
 }
 
 /// <summary>
@@ -613,7 +632,7 @@ BOOL UNIWINC_API IsBorderless() {
 /// </summary>
 /// <returns></returns>
 BOOL UNIWINC_API IsTopmost() {
-	return bIsTopmost_;
+	return getTopMost();
 }
 
 /// <summary>
@@ -973,6 +992,7 @@ void UNIWINC_API SetTopmost(const BOOL bTopmost) {
 void UNIWINC_API SetBottommost(const BOOL bBottommost) {
 	// 最前面化されていたら、解除
 	bIsTopmost_ = FALSE;
+	bActualTopmost_ = FALSE;
 
 	if (hTargetWnd_) {
 		SetWindowPos(
@@ -1059,6 +1079,15 @@ void UNIWINC_API SetMaximized(const BOOL bZoomed) {
 /// <returns></returns>
 void UNIWINC_API SetRespectAutoHideTaskbar(const BOOL enabled) {
 	bRespectAutoHideTaskbar_ = enabled;
+}
+
+/// <summary>
+/// Set whether to keep recovering topmost when other windows change z-order
+/// </summary>
+/// <param name="enabled"></param>
+/// <returns></returns>
+void UNIWINC_API SetMaintainTopmost(const BOOL enabled) {
+	bMaintainTopmost_ = enabled;
 }
 
 /// <summary>

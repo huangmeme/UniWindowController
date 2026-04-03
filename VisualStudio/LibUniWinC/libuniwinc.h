@@ -113,6 +113,7 @@ UNIWINC_EXPORT void UNIWINC_API SetClickThrough(const BOOL isTransparent);
 UNIWINC_EXPORT void UNIWINC_API SetMaximized(const BOOL isZoomed);
 UNIWINC_EXPORT void UNIWINC_API EnableFreePositioning(const BOOL isFree);
 UNIWINC_EXPORT void UNIWINC_API SetRespectAutoHideTaskbar(const BOOL enabled);
+UNIWINC_EXPORT void UNIWINC_API SetMaintainTopmost(const BOOL enabled);
 UNIWINC_EXPORT BOOL UNIWINC_API SetPosition(const float x, const float y);
 UNIWINC_EXPORT BOOL UNIWINC_API GetPosition(float* x, float* y);
 UNIWINC_EXPORT BOOL UNIWINC_API SetSize(const float width, const float height);
